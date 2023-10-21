@@ -30,7 +30,7 @@ comments = subreddit.stream.comments(skip_existing=True)
 trigger = "!vellabot"
 keep_alive()
 month = [
-  "january", "february", "march", "april", "may", "june", "july", "august", 
+  "january", "february", "march", "april", "may", "june", "july", "august",
   "september", "october", "november", "december"
 ]
 
@@ -40,15 +40,28 @@ memes = [
   '### pel dunga'
 ]
 
+optoutReplies = [
+  '### Ab aapka username bas dil mai aayega, mere replies mai nhi',
+  '### Accha chalta huu, duaaoon mai yaad rakha, mujhe dekhte hi upvote pe haath rakhna',
+  '### Sorry ji ab hum karenge aapko ignore, itni jaldi kyo ho gye aap humse bore'
+]
+
+optinReplies = [
+  '### Tera mujhse tha pehle ka naata koi, yuhi thodi wapas bulata koi',
+  '### Dooba Dooba rehta tha yaadon mei teri, wapas aa gya hu ab replies mai teri',
+  '### koi chahe, chahta rhe, mushil hai humko bhulana\n\n ### hum aa gye, andaaz leke purana'
+]
+
 verdicts = {
-    (121, 1000): "Legendary Vella",
-    (101, 121): "Expert Vella",
-    (81, 101): "Bohot Vella",
-    (61, 81): "Vella",
-    (41, 61): "Thodusa Vella",
-    (21, 41): "Biji",
-    (1, 21): "Very Biji",
-    (0, 0): 'Lmao ded'
+  (201, 1000): "Mr/Mrs Vellaverse",
+  (121, 201): "Legendary Vella",
+  (101, 121): "Expert Vella",
+  (81, 101): "Bohot Vella",
+  (61, 81): "Vella",
+  (41, 61): "Thodusa Vella",
+  (21, 41): "Biji",
+  (1, 21): "Very Biji",
+  (0, 0): 'Lmao ded'
 }
 
 query_month = [i[:3] for i in month]
@@ -70,8 +83,7 @@ def query():
   db = MClient["2023"]
   for comment in comments:
     post = reddit.submission(id=comment.submission).title
-    if post.find("Random Discussion Thread") != -1 and comment.body.lower(
-    ).find(trigger) != -1:
+    if comment.body.lower().find(trigger) != -1:
       text = comment.body
       text = text[comment.body.lower().find(trigger):]
       text = text.split(' ')
@@ -98,11 +110,19 @@ def query():
         except:
           continue
       if len(text) > 1 and (text[1].lower() in query_month):
-        reply = 'Top 5 Vellas in '+ text[1] +': \n\n'
+        reply = 'Top 5 Vellas in ' + text[1] + ': \n\n'
         reply += 'User|Comments Count\n:-:|:-:\n'
         for m in month:
           if text[1][:3].lower() == m[:3]:
-            data = db[m].find().sort("comments", -1).limit(5)
+            ignore_collection = db["ignore"]
+            users_to_ignore = [
+              user['_id'] for user in ignore_collection.find()
+            ]
+            data = db[m].find({
+              "user": {
+                "$nin": users_to_ignore
+              }
+            }).sort("comments", -1).limit(5)
             for i in data:
               reply += i['user'] + '|' + str(i['comments']) + '\n'
         try:
@@ -124,8 +144,11 @@ def query():
           except:
             continue
           continue
+      if_ignored = db['ignore'].find({'_id': {"$in": user}})
+      if if_ignored.count() > 0:
+        continue
       total_comments = 0
-      current_month=0
+      current_month = 0
       for i in range(0, 12):
         data = db[month[i]].find()
         flag = 0
@@ -135,16 +158,17 @@ def query():
           break
         current_month = i
       count = 0
-      for i in range(0, current_month-2):
+      for i in range(0, current_month - 2):
         data = db[month[i]].find()
         flag = 0
         for entry in data:
           flag = 1
           if entry['user'].lower() in user:
             count += entry['comments']
-      if current_month-3>=0:
-        reply += 'Till '+month[current_month-3].capitalize()[:3] + '|' + str(count) + '\n'
-      for i in range(current_month-2, current_month+1):
+      if current_month - 3 >= 0:
+        reply += 'Till ' + month[current_month -
+                                 3].capitalize()[:3] + '|' + str(count) + '\n'
+      for i in range(current_month - 2, current_month + 1):
         data = db[month[i]].find()
         count = 0
         flag = 0
@@ -158,10 +182,10 @@ def query():
       average = total_comments // total_days
       verdict = 'Lmao ded'
       for range_, result in verdicts.items():
-         lower, upper = range_
-         if lower <= average <= upper:
-            verdict = result
-            break
+        lower, upper = range_
+        if lower <= average <= upper:
+          verdict = result
+          break
       reply += '\nAvg no of Comments/Day made by ' + user[
         0] + ' in this month: ' + str(average) + '\n\n\
             Verdict: ' + verdict
@@ -172,14 +196,13 @@ def query():
         continue
 
 
-def delete():
+def reply():
   unread_replies = reddit.inbox.stream()
   for unread_reply in unread_replies:
     try:
       unread_reply.mark_read()
     except:
       continue
-
     if 'delete' in unread_reply.body.lower():
       try:
         deleting_user = unread_reply.author
@@ -191,10 +214,30 @@ def delete():
           comment.delete()
       except:
         continue
+    elif '!optout' in unread_reply.body.lower():
+      try:
+        user = unread_reply.author
+        db = MClient["2023"]
+        db["ignore"].insert_one({'_id': str(user)})
+        reply = 'You have unsubscribed from vellabot, your name will no longer show up in any of my replies.\n\n'
+        reply += "".join(random.choices(optoutReplies, k=1))
+        unread_reply.reply(reply)
+      except:
+        continue
+    elif '!optin' in unread_reply.body.lower():
+      try:
+        user = unread_reply.author
+        db = MClient["2023"]
+        db["ignore"].delete_one({'_id': str(user)})
+        reply = 'You have subscribed back to vellabot, your name _might_ show up in _some_ of my replies.\n\n'
+        reply += "".join(random.choices(optinReplies, k=1))
+        unread_reply.reply(reply)
+      except:
+        continue
 
 
 process1 = threading.Thread(target=query)
-process2 = threading.Thread(target=delete)
+process2 = threading.Thread(target=reply)
 process3 = threading.Thread(target=reset)
 process1.start()
 process2.start()
